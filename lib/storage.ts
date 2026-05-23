@@ -218,25 +218,49 @@ export const updatePlayerScore = async (playerId: string, holeIndex: number, sco
 };
 
 export const deletePlayer = async (playerId: string): Promise<void> => {
-  // Delete associated records from honest_john_results
-  await supabase
+  console.log('Starting deletion of player:', playerId);
+  
+  // Step 1: Delete associated records from honest_john_results
+  console.log('Step 1: Deleting from honest_john_results...');
+  const { error: hjError } = await supabase
     .from('honest_john_results')
     .delete()
     .eq('player_id', playerId);
   
-  // Delete associated records from plant_battle_results (where player appears as any of the plant players)
-  await supabase
+  if (hjError) {
+    console.error('Error deleting from honest_john_results:', hjError);
+  } else {
+    console.log('Successfully deleted from honest_john_results');
+  }
+  
+  // Step 2: Delete associated records from plant_battle_results (where player appears as any of the plant players)
+  console.log('Step 2: Deleting from plant_battle_results...');
+  const { error: pbError } = await supabase
     .from('plant_battle_results')
     .delete()
     .or(`sr_player_id.eq.${playerId},bp_player_id.eq.${playerId},gw_player_id.eq.${playerId}`);
   
-  // Delete associated records from lucky_draw_winners
-  await supabase
+  if (pbError) {
+    console.error('Error deleting from plant_battle_results:', pbError);
+  } else {
+    console.log('Successfully deleted from plant_battle_results');
+  }
+  
+  // Step 3: Delete associated records from lucky_draw_winners
+  console.log('Step 3: Deleting from lucky_draw_winners...');
+  const { error: ldError } = await supabase
     .from('lucky_draw_winners')
     .delete()
     .eq('player_id', playerId);
   
-  // Now delete the player
+  if (ldError) {
+    console.error('Error deleting from lucky_draw_winners:', ldError);
+  } else {
+    console.log('Successfully deleted from lucky_draw_winners');
+  }
+  
+  // Step 4: Now delete the player
+  console.log('Step 4: Deleting player...');
   const { error } = await supabase
     .from('players')
     .delete()
@@ -244,7 +268,10 @@ export const deletePlayer = async (playerId: string): Promise<void> => {
   
   if (error) {
     console.error('Error deleting player:', error);
+    throw error;
   }
+  
+  console.log('Successfully deleted player:', playerId);
 };
 
 export const calculateHonestJohn = async (adjustmentHoles: number[]): Promise<HonestJohnResult[]> => {
