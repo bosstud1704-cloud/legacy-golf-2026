@@ -218,6 +218,25 @@ export const updatePlayerScore = async (playerId: string, holeIndex: number, sco
 };
 
 export const deletePlayer = async (playerId: string): Promise<void> => {
+  // Delete associated records from honest_john_results
+  await supabase
+    .from('honest_john_results')
+    .delete()
+    .eq('player_id', playerId);
+  
+  // Delete associated records from plant_battle_results (where player appears as any of the plant players)
+  await supabase
+    .from('plant_battle_results')
+    .delete()
+    .or(`sr_player_id.eq.${playerId},bp_player_id.eq.${playerId},gw_player_id.eq.${playerId}`);
+  
+  // Delete associated records from lucky_draw_winners
+  await supabase
+    .from('lucky_draw_winners')
+    .delete()
+    .eq('player_id', playerId);
+  
+  // Now delete the player
   const { error } = await supabase
     .from('players')
     .delete()
