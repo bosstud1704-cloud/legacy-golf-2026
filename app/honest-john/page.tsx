@@ -17,6 +17,7 @@ export default function HonestJohnPage() {
   const [animatingInHole1, setAnimatingInHole1] = useState(0);
   const [animatingInHole2, setAnimatingInHole2] = useState(0);
   const [holePars, setHolePars] = useState<number[]>([]);
+  const [animatingSlot, setAnimatingSlot] = useState<string | null>(null);
 
   useEffect(() => {
     const loadData = async () => {
@@ -29,51 +30,93 @@ export default function HonestJohnPage() {
     loadData();
   }, []);
 
-  const handleDrawHoles = async () => {
-    if (isDrawing) return;
-    setIsDrawing(true);
-    setDrawnOutHoles([]);
-    setDrawnInHoles([]);
-
-    // Animate OUT holes (1-9)
-    const outHoles = [1, 2, 3, 4, 5, 6, 7, 8, 9];
-    const selectedOutHoles = [...outHoles].sort(() => Math.random() - 0.5).slice(0, 2);
+  const handleDrawHole = async (slot: 'out1' | 'out2' | 'in1' | 'in2') => {
+    if (isDrawing || animatingSlot) return;
     
-    // Slot machine animation for OUT holes
+    const allDrawnHoles = [...drawnOutHoles, ...drawnInHoles];
+    const isOut = slot.startsWith('out');
+    const holeRange = isOut ? [1, 2, 3, 4, 5, 6, 7, 8, 9] : [10, 11, 12, 13, 14, 15, 16, 17, 18];
+    
+    // Filter out already drawn holes
+    const availableHoles = holeRange.filter(h => !allDrawnHoles.includes(h));
+    
+    if (availableHoles.length === 0) {
+      alert('All holes in this range have been drawn!');
+      return;
+    }
+    
+    // Select random hole from available
+    const selectedHole = availableHoles[Math.floor(Math.random() * availableHoles.length)];
+    
+    setAnimatingSlot(slot);
+    setIsDrawing(true);
+    
+    // Slot machine animation
     let iterations = 0;
     const maxIterations = 20;
     
-    const animateOut = setInterval(() => {
-      setAnimatingOutHole1(outHoles[Math.floor(Math.random() * outHoles.length)]);
-      setAnimatingOutHole2(outHoles[Math.floor(Math.random() * outHoles.length)]);
+    const animate = setInterval(() => {
+      const randomHole = holeRange[Math.floor(Math.random() * holeRange.length)];
+      
+      switch (slot) {
+        case 'out1':
+          setAnimatingOutHole1(randomHole);
+          break;
+        case 'out2':
+          setAnimatingOutHole2(randomHole);
+          break;
+        case 'in1':
+          setAnimatingInHole1(randomHole);
+          break;
+        case 'in2':
+          setAnimatingInHole2(randomHole);
+          break;
+      }
+      
       iterations++;
       
       if (iterations >= maxIterations) {
-        clearInterval(animateOut);
-        setDrawnOutHoles(selectedOutHoles);
-        setAnimatingOutHole1(selectedOutHoles[0]);
-        setAnimatingOutHole2(selectedOutHoles[1]);
+        clearInterval(animate);
         
-        // Start IN holes animation after OUT completes
-        setTimeout(() => {
-          const inHoles = [10, 11, 12, 13, 14, 15, 16, 17, 18];
-          const selectedInHoles = [...inHoles].sort(() => Math.random() - 0.5).slice(0, 2);
-          
-          let inIterations = 0;
-          const animateIn = setInterval(() => {
-            setAnimatingInHole1(inHoles[Math.floor(Math.random() * inHoles.length)]);
-            setAnimatingInHole2(inHoles[Math.floor(Math.random() * inHoles.length)]);
-            inIterations++;
-            
-            if (inIterations >= maxIterations) {
-              clearInterval(animateIn);
-              setDrawnInHoles(selectedInHoles);
-              setAnimatingInHole1(selectedInHoles[0]);
-              setAnimatingInHole2(selectedInHoles[1]);
-              setIsDrawing(false);
-            }
-          }, 100);
-        }, 500);
+        // Set the final drawn hole
+        switch (slot) {
+          case 'out1':
+            setDrawnOutHoles(prev => [...prev, selectedHole]);
+            setAnimatingOutHole1(selectedHole);
+            break;
+          case 'out2':
+            setDrawnOutHoles(prev => [...prev, selectedHole]);
+            setAnimatingOutHole2(selectedHole);
+            break;
+          case 'in1':
+            setDrawnInHoles(prev => [...prev, selectedHole]);
+            setAnimatingInHole1(selectedHole);
+            break;
+          case 'in2':
+            setDrawnInHoles(prev => [...prev, selectedHole]);
+            setAnimatingInHole2(selectedHole);
+            break;
+        }
+        
+        setAnimatingSlot(null);
+        setIsDrawing(false);
+        
+        // Auto-calculate if all 4 holes are drawn
+        const newOutHoles = slot.startsWith('out') 
+          ? [...drawnOutHoles, selectedHole] 
+          : drawnOutHoles;
+        const newInHoles = slot.startsWith('in') 
+          ? [...drawnInHoles, selectedHole] 
+          : drawnInHoles;
+        
+        if (newOutHoles.length === 2 && newInHoles.length === 2) {
+          setTimeout(async () => {
+            const adjustmentHoles = [...newOutHoles, ...newInHoles].sort((a, b) => a - b);
+            const newResults = await calculateHonestJohn(adjustmentHoles);
+            setResults(newResults);
+            setHasCalculated(true);
+          }, 500);
+        }
       }
     }, 100);
   };
@@ -83,6 +126,12 @@ export default function HonestJohnPage() {
     const newResults = await calculateHonestJohn(adjustmentHoles);
     setResults(newResults);
     setHasCalculated(true);
+  };
+
+  const getWinners = () => {
+    if (results.length === 0) return [];
+    const minDiff = results[0].difference;
+    return results.filter(r => r.difference === minDiff);
   };
 
   const getPlantColor = (plant: string) => {
@@ -126,15 +175,29 @@ export default function HonestJohnPage() {
                 <div className="flex gap-4">
                   <div className="flex-1 bg-white border-2 border-gray-200 rounded-lg p-4 text-center">
                     <p className="text-xs text-gray-500 mb-1">Hole 1</p>
-                    <p className={`text-4xl font-bold ${isDrawing ? 'text-gray-900' : 'text-gray-400'}`}>
-                      {isDrawing ? animatingOutHole1 : (drawnOutHoles[0] || '-')}
+                    <p className={`text-4xl font-bold ${animatingSlot === 'out1' ? 'text-gray-900' : (drawnOutHoles[0] ? 'text-gray-900' : 'text-gray-400')}`}>
+                      {animatingSlot === 'out1' ? animatingOutHole1 : (drawnOutHoles[0] || '-')}
                     </p>
+                    <button
+                      onClick={() => handleDrawHole('out1')}
+                      disabled={isDrawing || animatingSlot !== null || drawnOutHoles.length >= 2}
+                      className="mt-2 text-xs px-3 py-1 bg-gray-200 text-gray-700 rounded hover:bg-gray-300 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {drawnOutHoles[0] ? 'Drawn' : 'Draw'}
+                    </button>
                   </div>
                   <div className="flex-1 bg-white border-2 border-gray-200 rounded-lg p-4 text-center">
                     <p className="text-xs text-gray-500 mb-1">Hole 2</p>
-                    <p className={`text-4xl font-bold ${isDrawing ? 'text-gray-900' : 'text-gray-400'}`}>
-                      {isDrawing ? animatingOutHole2 : (drawnOutHoles[1] || '-')}
+                    <p className={`text-4xl font-bold ${animatingSlot === 'out2' ? 'text-gray-900' : (drawnOutHoles[1] ? 'text-gray-900' : 'text-gray-400')}`}>
+                      {animatingSlot === 'out2' ? animatingOutHole2 : (drawnOutHoles[1] || '-')}
                     </p>
+                    <button
+                      onClick={() => handleDrawHole('out2')}
+                      disabled={isDrawing || animatingSlot !== null || drawnOutHoles.length >= 2}
+                      className="mt-2 text-xs px-3 py-1 bg-gray-200 text-gray-700 rounded hover:bg-gray-300 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {drawnOutHoles[1] ? 'Drawn' : 'Draw'}
+                    </button>
                   </div>
                 </div>
               </div>
@@ -145,50 +208,35 @@ export default function HonestJohnPage() {
                 <div className="flex gap-4">
                   <div className="flex-1 bg-white border-2 border-gray-200 rounded-lg p-4 text-center">
                     <p className="text-xs text-gray-500 mb-1">Hole 1</p>
-                    <p className={`text-4xl font-bold ${isDrawing ? 'text-gray-900' : 'text-gray-400'}`}>
-                      {isDrawing ? animatingInHole1 : (drawnInHoles[0] || '-')}
+                    <p className={`text-4xl font-bold ${animatingSlot === 'in1' ? 'text-gray-900' : (drawnInHoles[0] ? 'text-gray-900' : 'text-gray-400')}`}>
+                      {animatingSlot === 'in1' ? animatingInHole1 : (drawnInHoles[0] || '-')}
                     </p>
+                    <button
+                      onClick={() => handleDrawHole('in1')}
+                      disabled={isDrawing || animatingSlot !== null || drawnInHoles.length >= 2}
+                      className="mt-2 text-xs px-3 py-1 bg-gray-200 text-gray-700 rounded hover:bg-gray-300 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {drawnInHoles[0] ? 'Drawn' : 'Draw'}
+                    </button>
                   </div>
                   <div className="flex-1 bg-white border-2 border-gray-200 rounded-lg p-4 text-center">
                     <p className="text-xs text-gray-500 mb-1">Hole 2</p>
-                    <p className={`text-4xl font-bold ${isDrawing ? 'text-gray-900' : 'text-gray-400'}`}>
-                      {isDrawing ? animatingInHole2 : (drawnInHoles[1] || '-')}
+                    <p className={`text-4xl font-bold ${animatingSlot === 'in2' ? 'text-gray-900' : (drawnInHoles[1] ? 'text-gray-900' : 'text-gray-400')}`}>
+                      {animatingSlot === 'in2' ? animatingInHole2 : (drawnInHoles[1] || '-')}
                     </p>
+                    <button
+                      onClick={() => handleDrawHole('in2')}
+                      disabled={isDrawing || animatingSlot !== null || drawnInHoles.length >= 2}
+                      className="mt-2 text-xs px-3 py-1 bg-gray-200 text-gray-700 rounded hover:bg-gray-300 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {drawnInHoles[1] ? 'Drawn' : 'Draw'}
+                    </button>
                   </div>
                 </div>
               </div>
             </div>
-
-            <button
-              onClick={handleDrawHoles}
-              disabled={isDrawing || adjustmentHoles.length === 4}
-              className="flex items-center gap-2 px-6 py-3 bg-gray-900 text-white rounded-lg hover:bg-gray-800 transition-colors font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              <Shuffle className={`w-5 h-5 ${isDrawing ? 'animate-spin' : ''}`} />
-              {isDrawing ? 'Drawing...' : adjustmentHoles.length === 4 ? 'Holes Drawn' : 'Draw Holes'}
-            </button>
           </div>
 
-          {/* Calculate Button */}
-          {adjustmentHoles.length === 4 && !hasCalculated && (
-            <div className="bg-white rounded-xl border border-gray-200 p-6 mb-8">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h2 className="text-xl font-bold text-gray-900">Calculate Honest John Results</h2>
-                  <p className="text-gray-600 mt-1">
-                    Adjustment holes: {adjustmentHoles.join(', ')}
-                  </p>
-                </div>
-                <button
-                  onClick={handleCalculate}
-                  className="flex items-center gap-2 px-6 py-3 bg-gray-900 text-white rounded-lg hover:bg-gray-800 transition-colors font-semibold"
-                >
-                  <Trophy className="w-5 h-5" />
-                  Calculate Results
-                </button>
-              </div>
-            </div>
-          )}
 
           {hasCalculated && results.length > 0 ? (
             <>
@@ -276,11 +324,24 @@ export default function HonestJohnPage() {
                   <div className="inline-flex items-center justify-center w-16 h-16 bg-white rounded-full mb-4">
                     <Trophy className="w-8 h-8 text-gray-900" />
                   </div>
-                  <h2 className="text-3xl font-bold mb-2">🏆 Honest John Winner</h2>
-                  <p className="text-2xl font-semibold text-amber-300">{results[0].playerName}</p>
-                  <p className="text-gray-300 mt-2">
-                    {results[0].plant} • Difference: {results[0].difference}
-                  </p>
+                  <h2 className="text-3xl font-bold mb-2">🏆 Honest John Winner{getWinners().length > 1 ? 's' : ''}</h2>
+                  {getWinners().length > 1 ? (
+                    <div className="space-y-2">
+                      {getWinners().map((winner, index) => (
+                        <div key={winner.playerId} className="text-xl font-semibold text-amber-300">
+                          {winner.playerName} ({winner.plant}) • Difference: {winner.difference}
+                        </div>
+                      ))}
+                      <p className="text-gray-300 mt-2">It's a tie!</p>
+                    </div>
+                  ) : (
+                    <>
+                      <p className="text-2xl font-semibold text-amber-300">{results[0].playerName}</p>
+                      <p className="text-gray-300 mt-2">
+                        {results[0].plant} • Difference: {results[0].difference}
+                      </p>
+                    </>
+                  )}
                 </div>
               )}
             </>
@@ -288,7 +349,7 @@ export default function HonestJohnPage() {
             <div className="bg-white rounded-xl border border-gray-200 p-12 text-center">
               <Shuffle className="w-16 h-16 text-gray-300 mx-auto mb-4" />
               <p className="text-gray-500 text-lg">
-                {adjustmentHoles.length < 4 ? 'Draw adjustment holes first, then calculate results.' : 'Click "Calculate Results" to run the Honest John calculation'}
+                {adjustmentHoles.length < 4 ? `Draw adjustment holes (${adjustmentHoles.length}/4 drawn). Results will calculate automatically when all holes are drawn.` : 'Calculating results...'}
               </p>
             </div>
           )}

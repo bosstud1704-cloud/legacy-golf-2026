@@ -11,30 +11,134 @@ export default function LuckyDrawPage() {
   const [lastWinner, setLastWinner] = useState<LuckyDrawWinner | null>(null);
   const [poolSize, setPoolSize] = useState(0);
   const [isDrawing, setIsDrawing] = useState(false);
+  const [allPlayers, setAllPlayers] = useState<string[]>([]);
+  const [shuffledPlayers, setShuffledPlayers] = useState<string[]>([]);
+  const [highlightedIndex, setHighlightedIndex] = useState(-1);
+  const [isShuffling, setIsShuffling] = useState(false);
 
   useEffect(() => {
     const loadData = async () => {
       const loadedWinners = await loadLuckyDrawWinners();
       const loadedPoolSize = await loadLuckyDrawPool();
+      const { loadPlayers } = await import('@/lib/storage');
+      const players = await loadPlayers();
+      
       setWinners(loadedWinners);
       setPoolSize(loadedPoolSize.length);
+      setAllPlayers(players.map((p: any) => p.name));
+      setShuffledPlayers(players.map((p: any) => p.name));
     };
     loadData();
   }, []);
 
+  const handleShuffle = () => {
+    if (isShuffling) return;
+    setIsShuffling(true);
+    
+    // Animate shuffle by rapidly changing the order
+    let iterations = 0;
+    const maxIterations = 15;
+    
+    const shuffle = setInterval(() => {
+      const shuffled = [...shuffledPlayers].sort(() => Math.random() - 0.5);
+      setShuffledPlayers(shuffled);
+      iterations++;
+      
+      if (iterations >= maxIterations) {
+        clearInterval(shuffle);
+        setIsShuffling(false);
+      }
+    }, 100);
+  };
+
   const handleDrawWinner = async () => {
+    if (isDrawing || isShuffling) return;
     setIsDrawing(true);
     
-    // Simulate drawing animation
-    setTimeout(async () => {
-      const winner = await drawLuckyWinner();
-      setLastWinner(winner);
-      const loadedWinners = await loadLuckyDrawWinners();
-      const loadedPoolSize = await loadLuckyDrawPool();
-      setWinners(loadedWinners);
-      setPoolSize(loadedPoolSize.length);
+    // Get the pool of eligible players (those who haven't won)
+    const { loadPlayers } = await import('@/lib/storage');
+    const players = await loadPlayers();
+    const winnerIds = new Set(winners.map(w => w.id));
+    const eligiblePlayers = players.filter((p: any) => !winnerIds.has(p.id));
+    
+    if (eligiblePlayers.length === 0) {
+      alert('No eligible players in the pool!');
       setIsDrawing(false);
-    }, 1500);
+      return;
+    }
+    
+    // Pre-determine the winner BEFORE animation starts
+    const selectedWinner = eligiblePlayers[Math.floor(Math.random() * eligiblePlayers.length)];
+    const selectedWinnerIndex = shuffledPlayers.indexOf(selectedWinner.name);
+    
+    if (selectedWinnerIndex === -1) {
+      // Winner not in current shuffle, reshuffle to include them
+      const newShuffled = [...allPlayers].sort(() => Math.random() - 0.5);
+      setShuffledPlayers(newShuffled);
+      const newIndex = newShuffled.indexOf(selectedWinner.name);
+      
+      // Roulette animation - highlight players sequentially, designed to land on selected winner
+      let currentIndex = 0;
+      const totalDuration = 3500; // 3.5 seconds
+      const intervalTime = 100;
+      const totalIterations = totalDuration / intervalTime;
+      let iterations = 0;
+
+      const animate = setInterval(() => {
+        setHighlightedIndex(currentIndex);
+        currentIndex = (currentIndex + 1) % newShuffled.length;
+        iterations++;
+
+        if (iterations >= totalIterations) {
+          clearInterval(animate);
+          // Ensure we land exactly on the pre-selected winner
+          setHighlightedIndex(newIndex);
+          
+          // Record the actual winner in database
+          setTimeout(async () => {
+            const winner = await drawLuckyWinner();
+            setLastWinner(winner);
+            const loadedWinners = await loadLuckyDrawWinners();
+            const loadedPoolSize = await loadLuckyDrawPool();
+            setWinners(loadedWinners);
+            setPoolSize(loadedPoolSize.length);
+            setHighlightedIndex(-1);
+            setIsDrawing(false);
+          }, 500);
+        }
+      }, intervalTime);
+    } else {
+      // Roulette animation - highlight players sequentially, designed to land on selected winner
+      let currentIndex = 0;
+      const totalDuration = 3500; // 3.5 seconds
+      const intervalTime = 100;
+      const totalIterations = totalDuration / intervalTime;
+      let iterations = 0;
+
+      const animate = setInterval(() => {
+        setHighlightedIndex(currentIndex);
+        currentIndex = (currentIndex + 1) % shuffledPlayers.length;
+        iterations++;
+
+        if (iterations >= totalIterations) {
+          clearInterval(animate);
+          // Ensure we land exactly on the pre-selected winner
+          setHighlightedIndex(selectedWinnerIndex);
+          
+          // Record the actual winner in database
+          setTimeout(async () => {
+            const winner = await drawLuckyWinner();
+            setLastWinner(winner);
+            const loadedWinners = await loadLuckyDrawWinners();
+            const loadedPoolSize = await loadLuckyDrawPool();
+            setWinners(loadedWinners);
+            setPoolSize(loadedPoolSize.length);
+            setHighlightedIndex(-1);
+            setIsDrawing(false);
+          }, 500);
+        }
+      }, intervalTime);
+    }
   };
 
   const getPlantBadge = (plant: string) => {
@@ -55,18 +159,51 @@ export default function LuckyDrawPage() {
             <p className="text-gray-600 mt-2">Raffle for tournament prizes - Each player can win only once!</p>
           </div>
 
-          {/* Pool Status */}
+          {/* Player Pool */}
           <div className="bg-white rounded-xl border border-gray-200 p-6 mb-8">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-xl font-bold text-gray-900">Player Pool</h2>
+              <button
+                onClick={handleShuffle}
+                disabled={isShuffling || isDrawing}
+                className="flex items-center gap-2 px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <RotateCcw className={`w-4 h-4 ${isShuffling ? 'animate-spin' : ''}`} />
+                Shuffle Players
+              </button>
+            </div>
+            <div className="grid grid-cols-4 sm:grid-cols-6 md:grid-cols-8 gap-2">
+              {shuffledPlayers.map((player, index) => {
+                const hasWon = winners.some(w => w.playerName === player);
+                return (
+                  <div
+                    key={player}
+                    className={`text-center px-2 py-2 rounded border-2 text-sm font-medium transition-all ${
+                      highlightedIndex === index
+                        ? 'border-gray-900 bg-gray-900 text-white scale-110'
+                        : hasWon
+                        ? 'border-gray-200 bg-gray-100 text-gray-400 line-through'
+                        : 'border-gray-200 bg-white'
+                    }`}
+                  >
+                    {player}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Pool Status */}
+          <div className="bg-white rounded-xl border border-gray-200 p-4 mb-8">
             <div className="flex items-center justify-between">
               <div>
-                <h2 className="text-xl font-bold text-gray-900">Draw Pool</h2>
-                <p className="text-gray-600 mt-1">
-                  {poolSize} player{poolSize !== 1 ? 's' : ''} remaining in the pool
+                <p className="text-sm text-gray-600">
+                  {poolSize} player{poolSize !== 1 ? 's' : ''} eligible to win
                 </p>
               </div>
               <div className="text-right">
                 <p className="text-sm text-gray-500">Total Winners</p>
-                <p className="text-3xl font-bold text-gray-900">{winners.length}</p>
+                <p className="text-2xl font-bold text-gray-900">{winners.length}</p>
               </div>
             </div>
           </div>

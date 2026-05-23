@@ -10,10 +10,14 @@ export const getHoleParValues = async (): Promise<number[]> => {
     .from('course_setup')
     .select('hole_pars')
     .eq('id', 1)
-    .single();
+    .maybeSingle();
   
   if (error || !data) {
-    console.error('Error loading hole pars:', error);
+    // If no data exists, insert default values
+    await supabase.from('course_setup').insert({
+      id: 1,
+      hole_pars: DEFAULT_HOLE_PARS,
+    });
     return DEFAULT_HOLE_PARS;
   }
   
@@ -111,10 +115,16 @@ export const loadPlantScores = async (): Promise<{ SR: number; BP: number; GW: n
     .from('plant_scores')
     .select('*')
     .eq('id', 1)
-    .single();
+    .maybeSingle();
   
   if (error || !data) {
-    console.error('Error loading plant scores:', error);
+    // If no data exists, insert default values
+    await supabase.from('plant_scores').insert({
+      id: 1,
+      sr_score: 0,
+      bp_score: 0,
+      gw_score: 0,
+    });
     return { SR: 0, BP: 0, GW: 0 };
   }
   
@@ -270,16 +280,16 @@ export const calculateHonestJohn = async (adjustmentHoles: number[]): Promise<Ho
   return results;
 };
 
-export const drawPlantBattlePlayers = async (hole: number): Promise<PlantBattleResult> => {
+export const drawPlantBattlePlayers = async (hole: number, srPlayerName?: string, bpPlayerName?: string, gwPlayerName?: string): Promise<PlantBattleResult> => {
   const players = await loadPlayers();
   
   const srPlayers = players.filter(p => p.plant === 'SR');
   const bpPlayers = players.filter(p => p.plant === 'BP');
   const gwPlayers = players.filter(p => p.plant === 'GW');
   
-  const srPlayer = srPlayers.length > 0 ? shuffleArray(srPlayers)[0] : null;
-  const bpPlayer = bpPlayers.length > 0 ? shuffleArray(bpPlayers)[0] : null;
-  const gwPlayer = gwPlayers.length > 0 ? shuffleArray(gwPlayers)[0] : null;
+  const srPlayer = srPlayerName ? srPlayers.find(p => p.name === srPlayerName) || null : (srPlayers.length > 0 ? shuffleArray(srPlayers)[0] : null);
+  const bpPlayer = bpPlayerName ? bpPlayers.find(p => p.name === bpPlayerName) || null : (bpPlayers.length > 0 ? shuffleArray(bpPlayers)[0] : null);
+  const gwPlayer = gwPlayerName ? gwPlayers.find(p => p.name === gwPlayerName) || null : (gwPlayers.length > 0 ? shuffleArray(gwPlayers)[0] : null);
   
   let winner: Plant | null = null;
   const scores: { [key in Plant]: number } = { SR: 999, BP: 999, GW: 999 };
@@ -289,9 +299,17 @@ export const drawPlantBattlePlayers = async (hole: number): Promise<PlantBattleR
   if (gwPlayer) scores.GW = gwPlayer.scores[hole - 1];
   
   const minScore = Math.min(scores.SR, scores.BP, scores.GW);
-  if (scores.SR === minScore && srPlayer) winner = 'SR';
-  else if (scores.BP === minScore && bpPlayer) winner = 'BP';
-  else if (scores.GW === minScore && gwPlayer) winner = 'GW';
+  
+  // Handle ties - if multiple plants have the same minimum score, it's a tie
+  const winners: Plant[] = [];
+  if (scores.SR === minScore && srPlayer) winners.push('SR');
+  if (scores.BP === minScore && bpPlayer) winners.push('BP');
+  if (scores.GW === minScore && gwPlayer) winners.push('GW');
+  
+  // If there's a single winner, set it. If tie, winner remains null
+  if (winners.length === 1) {
+    winner = winners[0];
+  }
   
   const result: PlantBattleResult = {
     hole,
@@ -316,13 +334,13 @@ export const drawPlantBattlePlayers = async (hole: number): Promise<PlantBattleR
     winner,
   });
   
-  // Update plant scores
+  // Update plant scores only if there's a single winner (no tie)
   if (winner) {
     const { data: currentScores } = await supabase
       .from('plant_scores')
       .select('*')
       .eq('id', 1)
-      .single();
+      .maybeSingle();
     
     if (currentScores) {
       const updates: any = {};
@@ -331,6 +349,17 @@ export const drawPlantBattlePlayers = async (hole: number): Promise<PlantBattleR
       if (winner === 'GW') updates.gw_score = currentScores.gw_score + 1;
       
       await supabase.from('plant_scores').update(updates).eq('id', 1);
+    } else {
+      // Initialize plant scores if not exists
+      const updates: any = { sr_score: 0, bp_score: 0, gw_score: 0 };
+      if (winner === 'SR') updates.sr_score = 1;
+      if (winner === 'BP') updates.bp_score = 1;
+      if (winner === 'GW') updates.gw_score = 1;
+      
+      await supabase.from('plant_scores').insert({
+        id: 1,
+        ...updates,
+      });
     }
   }
   
@@ -375,10 +404,16 @@ export const updateHolePar = async (holeIndex: number, par: number): Promise<voi
     .from('course_setup')
     .select('hole_pars')
     .eq('id', 1)
-    .single();
+    .maybeSingle();
   
   if (!current) {
-    console.error('Course setup not found');
+    // If no data exists, insert with default values first
+    const newPars = [...DEFAULT_HOLE_PARS];
+    newPars[holeIndex] = par;
+    await supabase.from('course_setup').insert({
+      id: 1,
+      hole_pars: newPars,
+    });
     return;
   }
   
@@ -400,8 +435,24 @@ export const resetTournament = async (): Promise<void> => {
   await supabase.from('honest_john_results').delete().neq('id', '00000000-0000-0000-0000-000000000000');
   await supabase.from('plant_battle_results').delete().neq('id', '00000000-0000-0000-0000-000000000000');
   await supabase.from('lucky_draw_winners').delete().neq('id', '00000000-0000-0000-0000-000000000000');
-  await supabase.from('plant_scores').update({ sr_score: 0, bp_score: 0, gw_score: 0 }).eq('id', 1);
-  await supabase.from('course_setup').update({ hole_pars: DEFAULT_HOLE_PARS }).eq('id', 1);
+  
+  // Reset plant scores - use upsert to handle empty table
+  const { error: scoresError } = await supabase
+    .from('plant_scores')
+    .upsert({ id: 1, sr_score: 0, bp_score: 0, gw_score: 0 }, { onConflict: 'id' });
+  
+  if (scoresError) {
+    console.error('Error resetting plant scores:', scoresError);
+  }
+  
+  // Reset course setup - use upsert to handle empty table
+  const { error: setupError } = await supabase
+    .from('course_setup')
+    .upsert({ id: 1, hole_pars: DEFAULT_HOLE_PARS }, { onConflict: 'id' });
+  
+  if (setupError) {
+    console.error('Error resetting course setup:', setupError);
+  }
 };
 
 // Helper function to shuffle array
